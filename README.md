@@ -2,6 +2,9 @@
 
 A Next.js application that audits Shopify stores for AI agent readiness by connecting to MCP (Model Context Protocol) endpoints and evaluating various readiness criteria.
 
+## Demo
+https://shopify-ai-agent-readiness-audit.onrender.com
+
 ## Features
 
 - **MCP Integration**: Connects to Shopify MCP endpoints to fetch product data
