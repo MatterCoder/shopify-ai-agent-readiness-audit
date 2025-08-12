@@ -1,8 +1,9 @@
 "use client";
 import { useState } from "react";
 import { Client } from "@modelcontextprotocol/sdk/client/index.js";
-import { StreamableHttpClientTransport } from "@modelcontextprotocol/sdk/client/streamable-http";
-import { motion, AnimatePresence } from "framer-motion";
+import { StreamableHTTPClientTransport  } from "@modelcontextprotocol/sdk/client/streamableHttp.js";
+
+import { motion, AnimatePresence, HTMLMotionProps } from "framer-motion";
 
 function AuditChatAnimation({
   messages,
@@ -79,33 +80,55 @@ export default function Home() {
     setLoading(true);
 
     try {
+      const sessionId = Math.random().toString(36).substring(7);
+      
       pushMessage("🤖 Connecting to MCP endpoint...");
-      const transport = new StreamableHttpClientTransport({
-        url: `${storeUrl.replace(/\/$/, "")}/api/mcp`,
+      const connectRes = await fetch('http://localhost:3001/api/mcp/connect', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          mcpUrl: `${storeUrl.replace(/\/$/, "")}/api/mcp`,
+          sessionId
+        })
       });
-      const client = new Client({
-        name: "browser-client",
-        version: "1.0.0",
-      });
-      await client.connect(transport);
+      
+      if (!connectRes.ok) {
+        const errorData = await connectRes.json();
+        throw new Error(errorData.error || 'Failed to connect to MCP');
+      }
 
       pushMessage("🔍 Running search_shop_catalog...");
-      const searchRes = await client.callTool({
-        name: "search_shop_catalog",
-        arguments: { query: "", limit: 10, country: "IE", language: "en" },
+      const searchRes = await fetch('http://localhost:3001/api/mcp/tool', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          sessionId,
+          toolName: "search_shop_catalog",
+          arguments: { query: 'what products are for sale', context: "user wants to know what products are for sale" }
+        })
       });
+      const searchData = await searchRes.json();
+      if (!searchData.success) throw new Error(searchData.error);
 
       pushMessage("📦 Fetching product details...");
       let details: any[] = [];
-      if (searchRes.data && Array.isArray(searchRes.data) && searchRes.data.length) {
-        const productIds = searchRes.data.slice(0, 2).map((p: any) => p.id);
+      if (searchData.data && Array.isArray(searchData.data) && searchData.data.length) {
+        const productIds = searchData.data.slice(0, 2).map((p: any) => p.id);
         for (const id of productIds) {
           try {
-            const detail = await client.callTool({
-              name: "get_product_details",
-              arguments: { product_id: id },
+            const detailRes = await fetch('http://localhost:3001/api/mcp/tool', {
+              method: 'POST',
+              headers: { 'Content-Type': 'application/json' },
+              body: JSON.stringify({
+                sessionId,
+                toolName: "get_product_details",
+                arguments: { product_id: id }
+              })
             });
-            details.push(detail.data);
+            const detailData = await detailRes.json();
+            if (detailData.success) {
+              details.push(detailData.data);
+            }
           } catch {
             // ignore detail errors
           }
@@ -115,24 +138,42 @@ export default function Home() {
       pushMessage("📜 Checking policies...");
       let policies = null;
       try {
-        policies = await client.callTool({
-          name: "search_shop_policies_and_faqs",
-          arguments: { query: "shipping" },
+        const policiesRes = await fetch('http://localhost:3001/api/mcp/tool', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            sessionId,
+            toolName: "search_shop_policies_and_faqs",
+            arguments: { query: "shipping" }
+          })
         });
+        const policiesData = await policiesRes.json();
+        if (policiesData.success) {
+          policies = policiesData;
+        }
       } catch {
         policies = null;
       }
 
-      pushMessage("🌐 Reading robots.txt & sitemap.xml & ai.txt...");
-      const robots = await fetch(`${storeUrl}/robots.txt`).then(r =>
-        r.ok ? r.text() : null
-      ).catch(() => null);
-      const sitemap = await fetch(`${storeUrl}/sitemap.xml`).then(r =>
-        r.ok ? r.text() : null
-      ).catch(() => null);
-      const aiTxt = await fetch(`${storeUrl}/ai.txt`).then(r =>
-        r.ok ? r.text() : null
-      ).catch(() => null);
+      pushMessage("🌐 Reading robots.txt & sitemap.xml & llms.txt...");
+
+      const fetchFile = async (url: string) => {
+        try {
+          const response = await fetch('http://localhost:3001/api/fetch-file', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ url })
+          });
+          const result = await response.json();
+          return result.success ? result.data : null;
+        } catch {
+          return null;
+        }
+      };
+
+      const robots = await fetchFile(`${storeUrl}/robots.txt`);
+      const sitemap = await fetchFile(`${storeUrl}/sitemap.xml`);
+      const aiTxt = await fetchFile(`${storeUrl}/llms.txt`);
 
       pushMessage("✅ Computing readiness score...");
 
@@ -248,11 +289,12 @@ export default function Home() {
       // Filters (20 pts)
       let filterCount = 0;
       if (
-        searchRes.data &&
-        searchRes.data.length > 0 &&
-        searchRes.data[0].available_filters
+        searchData.data &&
+        Array.isArray(searchData.data) &&
+        searchData.data.length > 0 &&
+        searchData.data[0].available_filters
       ) {
-        filterCount = Object.keys(searchRes.data[0].available_filters).length;
+        filterCount = Object.keys(searchData.data[0].available_filters).length;
       }
       const filtersScore = Math.min(filterCount / 8, 1) * 20;
       scoreDetails.filters = filtersScore;
@@ -263,7 +305,7 @@ export default function Home() {
       );
 
       // Policies (25 pts)
-      const policiesScore = policies && policies.data && policies.data.length > 0 ? 25 : 0;
+      const policiesScore = policies && policies.data && Array.isArray(policies.data) && policies.data.length > 0 ? 25 : 0;
       scoreDetails.policies = policiesScore;
       pushMessage(
         `• Policies tool presence: ${
@@ -272,7 +314,7 @@ export default function Home() {
       );
 
       // Media accessibility (10 pts)
-      // Check for robots.txt, sitemap.xml, ai.txt presence as reliability proxies
+      // Check for robots.txt, sitemap.xml, llms.txt presence as reliability proxies
       let mediaScore = 0;
       if (robots) mediaScore += 3;
       if (sitemap) mediaScore += 3;
@@ -281,7 +323,7 @@ export default function Home() {
       pushMessage(
         `• Web signals found: robots.txt (${robots ? "yes" : "no"}), sitemap.xml (${
           sitemap ? "yes" : "no"
-        }), ai.txt (${aiTxt ? "yes" : "no"}) (${mediaScore}/10 pts)`
+        }), llms.txt (${aiTxt ? "yes" : "no"}) (${mediaScore}/10 pts)`
       );
 
       // Reliability (10 pts)
@@ -298,6 +340,13 @@ export default function Home() {
 
       pushMessage(`🏆 Final AI Agent Readiness Score: ${finalScore.toFixed(1)} / 100`);
 
+      // Disconnect when done
+      await fetch('http://localhost:3001/api/mcp/disconnect', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ sessionId })
+      });
+
     } catch (e: any) {
       setError(e.message || "Unknown error");
       pushMessage(`❌ Error: ${e.message || "Unknown error"}`);
@@ -305,7 +354,8 @@ export default function Home() {
       setLoading(false);
     }
   }
-return (
+
+  return (
   <main className="min-h-screen flex flex-col items-center justify-center p-4 bg-slate-100">
     <h1 className="text-3xl font-bold mb-6">
       Shopify AI Agent Readiness Audit
@@ -354,4 +404,5 @@ return (
 
     <AuditChatAnimation messages={messages} loading={loading} />
   </main>
-);
+  );
+}
