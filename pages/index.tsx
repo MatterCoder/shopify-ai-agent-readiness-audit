@@ -1,7 +1,7 @@
 "use client";
 import { useState } from "react";
 import { Client } from "@modelcontextprotocol/sdk/client/index.js";
-import { StreamableHttpClientTransport } from "@modelcontextprotocol/sdk/client/streamable-http.js";
+import { StreamableHttpClientTransport } from "@modelcontextprotocol/sdk/client/streamable-http";
 import { motion, AnimatePresence } from "framer-motion";
 
 function AuditChatAnimation({
