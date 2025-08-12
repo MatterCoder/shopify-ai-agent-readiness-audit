@@ -83,7 +83,7 @@ export default function Home() {
       const sessionId = Math.random().toString(36).substring(7);
       
       pushMessage("🤖 Connecting to MCP endpoint...");
-      const connectRes = await fetch('http://localhost:3001/api/mcp/connect', {
+      const connectRes = await fetch('/api/mcp/connect', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
@@ -98,7 +98,7 @@ export default function Home() {
       }
 
       pushMessage("🔍 Running search_shop_catalog...");
-      const searchRes = await fetch('http://localhost:3001/api/mcp/tool', {
+      const searchRes = await fetch('/api/mcp/tool', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
@@ -110,13 +110,18 @@ export default function Home() {
       const searchData = await searchRes.json();
       if (!searchData.success) throw new Error(searchData.error);
 
+      console.log('Search results:', searchData.data); // Add this debug line
+
       pushMessage("📦 Fetching product details...");
       let details: any[] = [];
       if (searchData.data && Array.isArray(searchData.data) && searchData.data.length) {
-        const productIds = searchData.data.slice(0, 2).map((p: any) => p.id);
+        const productIds = searchData.data.slice(0, 2).map((p: any) => p.id).filter((id: string | number) => id); // Filter out undefined ids
+        console.log('Product IDs found:', productIds); // Add this debug line
+        
         for (const id of productIds) {
+          if (!id) continue; // Skip if id is falsy
           try {
-            const detailRes = await fetch('http://localhost:3001/api/mcp/tool', {
+            const detailRes = await fetch('/api/mcp/tool', {
               method: 'POST',
               headers: { 'Content-Type': 'application/json' },
               body: JSON.stringify({
@@ -138,7 +143,7 @@ export default function Home() {
       pushMessage("📜 Checking policies...");
       let policies = null;
       try {
-        const policiesRes = await fetch('http://localhost:3001/api/mcp/tool', {
+        const policiesRes = await fetch('/api/mcp/tool', {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({
@@ -159,7 +164,7 @@ export default function Home() {
 
       const fetchFile = async (url: string) => {
         try {
-          const response = await fetch('http://localhost:3001/api/fetch-file', {
+          const response = await fetch('/api/fetch-file', {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify({ url })
@@ -341,7 +346,7 @@ export default function Home() {
       pushMessage(`🏆 Final AI Agent Readiness Score: ${finalScore.toFixed(1)} / 100`);
 
       // Disconnect when done
-      await fetch('http://localhost:3001/api/mcp/disconnect', {
+      await fetch('/api/mcp/disconnect', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ sessionId })
